@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "728688395306",
+    "project_id": "vtoroe-me",
+    "storage_bucket": "vtoroe-me.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:728688395306:android:41a8781ff31e05afb2af53",
+        "android_client_info": {
+          "package_name": "com.example.vtoroe_me"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyA61SD0LK_YtINABIa3kG4piJN9h18lFX8"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
