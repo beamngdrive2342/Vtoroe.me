@@ -85,52 +85,11 @@ class SecondSelfApp extends StatelessWidget {
               ),
             );
           }
-          if (snapshot.hasData) return const OnboardingWrapper();
+          if (snapshot.hasData) return const MainScreen();
           return const LoginScreen();
         },
       ),
     );
-  }
-}
-
-// ==========================================
-// ONBOARDING WRAPPER
-// ==========================================
-class OnboardingWrapper extends StatefulWidget {
-  const OnboardingWrapper({super.key});
-
-  @override
-  State<OnboardingWrapper> createState() => _OnboardingWrapperState();
-}
-
-class _OnboardingWrapperState extends State<OnboardingWrapper> {
-  bool? _onboardingDone;
-
-  @override
-  void initState() {
-    super.initState();
-    _checkOnboarding();
-  }
-
-  Future<void> _checkOnboarding() async {
-    final prefs = await SharedPreferences.getInstance();
-    setState(() {
-      _onboardingDone = prefs.getBool('onboarding_done') ?? false;
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    if (_onboardingDone == null) {
-      return const Scaffold(
-        backgroundColor: Color(0xFF0E0E0E),
-        body: Center(
-          child: CircularProgressIndicator(color: Color(0xFFD4FF4A)),
-        ),
-      );
-    }
-    if (_onboardingDone!) return const MainScreen();
-    return const OnboardingScreen();
   }
 }
 
@@ -168,14 +127,31 @@ class _MainScreenState extends State<MainScreen> {
     super.initState();
     // Регистрируем callback: при тапе на уведомление когда приложение открыто
     NotificationService().onReminderFired = _onReminderFired;
-    // Проверяем был ли уже показан профиль-онбординг
-    _checkProfileOnboarding();
+    // Проверяем статус обучений
+    _checkOnboardings();
   }
 
-  Future<void> _checkProfileOnboarding() async {
+  Future<void> _checkOnboardings() async {
     final prefs = await SharedPreferences.getInstance();
     _profileOnboardingShown =
         prefs.getBool('profile_onboarding_done') ?? false;
+
+    final onboardingDone = prefs.getBool('onboarding_done') ?? false;
+    if (!onboardingDone && mounted) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        Future.delayed(const Duration(milliseconds: 400), () {
+          if (!mounted) return;
+          showModalBottomSheet(
+            context: context,
+            isScrollControlled: true,
+            isDismissible: false,
+            enableDrag: false,
+            backgroundColor: Colors.transparent,
+            builder: (context) => const OnboardingScreen(),
+          );
+        });
+      });
+    }
   }
 
   @override
@@ -471,15 +447,11 @@ class _MainScreenState extends State<MainScreen> {
             final prefs = await SharedPreferences.getInstance();
             await prefs.setBool('profile_onboarding_done', true);
             if (mounted) {
-              await Navigator.of(context).push(
-                PageRouteBuilder(
-                  opaque: false,
-                  pageBuilder: (_, __, ___) => const ProfileOnboardingScreen(),
-                  transitionsBuilder: (_, animation, __, child) {
-                    return FadeTransition(opacity: animation, child: child);
-                  },
-                  transitionDuration: const Duration(milliseconds: 300),
-                ),
+              showModalBottomSheet(
+                context: context,
+                isScrollControlled: true,
+                backgroundColor: Colors.transparent,
+                builder: (context) => const ProfileOnboardingScreen(),
               );
             }
           }
