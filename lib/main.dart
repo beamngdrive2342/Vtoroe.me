@@ -103,25 +103,25 @@ class _MainScreenState extends State<MainScreen> {
   final List<Map<String, dynamic>> reminders = [
     {
       'title': 'Выровняй спину',
-      'subtitle': 'КАЖДЫЕ 30 МИН • ВИБРАЦИЯ',
+      'subtitle': '30 М',
       'icon': Icons.accessibility_new,
       'isActive': true,
     },
     {
       'title': 'Попей воду',
-      'subtitle': 'КАЖДЫЙ ЧАС • ЗВУК',
+      'subtitle': '60 М',
       'icon': Icons.water_drop,
       'isActive': true,
     },
     {
       'title': 'Не закуривай',
-      'subtitle': 'КАЖДЫЕ 2 ЧАСА • ОБА',
+      'subtitle': '120 М',
       'icon': Icons.smoke_free,
       'isActive': true,
     },
     {
       'title': 'Разомнись',
-      'subtitle': 'В 12:00 • ВИБРО',
+      'subtitle': '60 М',
       'icon': Icons.self_improvement,
       'isActive': false,
     },
@@ -147,7 +147,7 @@ class _MainScreenState extends State<MainScreen> {
   // ── Логика оверлея ─────────────────────────────────────────────────────────
 
   /// Вызывается из NotificationService при каждом фактическом срабатывании таймера.
-  void _onReminderFired(int reminderId, String reminderTitle) {
+  void _onReminderFired(int reminderId, String reminderTitle, DateTime fireTime) {
     // Увеличиваем totalFired в статистике
     StatsService().incrementFired(reminderTitle);
 
@@ -157,18 +157,21 @@ class _MainScreenState extends State<MainScreen> {
     setState(() {
       activeReminderId       = reminderId;
       activeReminderTitle    = reminderTitle;
-      activeReminderStartedAt = DateTime.now();
-      _overlaySecondsLeft    = 30;
+      activeReminderStartedAt = fireTime;
+      _overlaySecondsLeft    = 30 - DateTime.now().difference(fireTime).inSeconds;
     });
 
-    _overlayTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+    _overlayTimer = Timer.periodic(const Duration(milliseconds: 200), (timer) {
       if (!mounted) {
         timer.cancel();
         return;
       }
-      setState(() {
-        _overlaySecondsLeft--;
-      });
+      final secondsLeft = 30 - DateTime.now().difference(activeReminderStartedAt!).inSeconds;
+      if (secondsLeft != _overlaySecondsLeft) {
+        setState(() {
+          _overlaySecondsLeft = secondsLeft;
+        });
+      }
       if (_overlaySecondsLeft <= 0) {
         timer.cancel();
         _closeOverlay(confirmed: false);
@@ -179,6 +182,9 @@ class _MainScreenState extends State<MainScreen> {
   void _closeOverlay({required bool confirmed}) {
     _overlayTimer?.cancel();
     _overlayTimer = null;
+    if (activeReminderId != null) {
+      NotificationService().dismissNotification(activeReminderId!);
+    }
     if (mounted) {
       setState(() {
         activeReminderId      = null;
@@ -805,14 +811,7 @@ class SettingsScreen extends StatefulWidget {
 
 class _SettingsScreenState extends State<SettingsScreen> {
   late TextEditingController _titleController;
-  late int selectedMinutes;  // 1..480
-  late String selectedNotification;
-
-  static const List<Map<String, dynamic>> notificationTypes = [
-    {'label': 'ЗВУК', 'icon': Icons.volume_up},
-    {'label': 'ВИБРО', 'icon': Icons.vibration},
-    {'label': 'ЗВУК + ВИБРО', 'icon': Icons.notifications_active},
-  ];
+  late int selectedMinutes;  // 10..480
 
   @override
   void initState() {
@@ -820,13 +819,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _titleController = TextEditingController(text: widget.title);
 
     selectedMinutes = 30;
-    selectedNotification = 'ВИБРО';
 
     if (widget.subtitle.isNotEmpty) {
       final parts = widget.subtitle.split('•');
-      if (parts.length > 1) {
-        selectedNotification = parts[1].trim();
-      }
       final dur = NotificationService().parseFrequency(parts[0].trim());
       if (dur != null) {
         // Snap to nearest valid value
@@ -906,81 +901,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
               selectedMinutes: selectedMinutes,
               onChanged: (m) => setState(() => selectedMinutes = m),
             ),
-            const SizedBox(height: 40),
-
-            // Notification Type Section
-            Text(
-              'УВЕДОМЛЕНИЯ',
-              style: AppTheme.spaceGrotesk.copyWith(
-                fontSize: 10,
-                letterSpacing: 2,
-                color: AppTheme.textMuted,
-              ),
-            ),
-            const SizedBox(height: 12),
-            Row(
-              children: notificationTypes.map((nt) {
-                final label = nt['label'] as String;
-                final icon = nt['icon'] as IconData;
-                final isSelected = label == selectedNotification;
-                return Expanded(
-                  child: Padding(
-                    padding: EdgeInsets.only(
-                      right: nt == notificationTypes.last ? 0 : 8,
-                    ),
-                    child: GestureDetector(
-                      onTap: () {
-                        AppSettings.vibrateSelection();
-                        setState(() => selectedNotification = label);
-                      },
-                      child: AnimatedContainer(
-                        duration: const Duration(milliseconds: 200),
-                        height: 90,
-                        decoration: BoxDecoration(
-                          color: isSelected
-                              ? AppTheme.accent.withOpacity(0.12)
-                              : AppTheme.surface,
-                          border: Border.all(
-                            color: isSelected
-                                ? AppTheme.accent
-                                : AppTheme.border,
-                            width: isSelected ? 1.5 : 1,
-                          ),
-                          borderRadius: BorderRadius.circular(4),
-                        ),
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(
-                              icon,
-                              color: isSelected
-                                  ? AppTheme.accent
-                                  : AppTheme.textPrimary,
-                              size: 22,
-                            ),
-                            const SizedBox(height: 8),
-                            Text(
-                              label,
-                              textAlign: TextAlign.center,
-                              style: AppTheme.spaceGrotesk.copyWith(
-                                fontSize: 9,
-                                color: isSelected
-                                    ? AppTheme.accent
-                                    : AppTheme.textMuted,
-                                letterSpacing: 0.8,
-                                fontWeight: isSelected
-                                    ? FontWeight.w700
-                                    : FontWeight.normal,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                );
-              }).toList(),
-            ),
             const SizedBox(height: 120),
           ],
         ),
@@ -994,7 +914,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         child: GestureDetector(
           onTap: () {
             HapticFeedback.mediumImpact();
-            final subtitle = '$selectedMinutes М • $selectedNotification';
+            final subtitle = '$selectedMinutes М';
             if (widget.isNew) {
               if (_titleController.text.trim().isEmpty) return;
               Navigator.pop(context, {
