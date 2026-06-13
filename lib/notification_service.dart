@@ -12,8 +12,8 @@ class NotificationService {
   final Map<int, Timer> _activeTimers = {};
 
   /// Callback, вызываемый каждый раз при фактическом срабатывании напоминания.
-  /// Аргументы: reminderId (int), reminderTitle (String).
-  void Function(int reminderId, String reminderTitle)? onReminderFired;
+  /// Аргументы: reminderId (int), reminderTitle (String), fireTime (DateTime).
+  void Function(int reminderId, String reminderTitle, DateTime fireTime)? onReminderFired;
 
   Future<void> init() async {
     const androidSettings = AndroidInitializationSettings(
@@ -55,8 +55,9 @@ class NotificationService {
     return true;
   }
 
-  Future<void> showNow(int id, String title, String body) async {
-    const details = NotificationDetails(
+  Future<void> showNow(int id, String title, String body, DateTime fireTime) async {
+    final whenTime = fireTime.millisecondsSinceEpoch + 30000;
+    final details = NotificationDetails(
       android: AndroidNotificationDetails(
         'vtoroe_ya_channel',
         'Второе Я',
@@ -65,7 +66,12 @@ class NotificationService {
         priority: Priority.high,
         enableVibration: true,
         playSound: true,
-        styleInformation: BigTextStyleInformation(''),
+        showWhen: true,
+        when: whenTime,
+        usesChronometer: true,
+        chronometerCountDown: true,
+        timeoutAfter: 30000,
+        styleInformation: const BigTextStyleInformation(''),
       ),
     );
     await _plugin.show(
@@ -74,6 +80,10 @@ class NotificationService {
       body: body,
       notificationDetails: details,
     );
+  }
+
+  Future<void> dismissNotification(int id) async {
+    await _plugin.cancel(id: id);
   }
 
   /// Parse frequency from subtitle like "30 М • ВИБРО" or "30 М" or "1 Ч"
@@ -101,8 +111,6 @@ class NotificationService {
 
   void startPeriodicReminder(int id, String title, Duration interval) {
     stopReminder(id);
-    // Fire first notification immediately, then repeat
-    _fireReminder(id, title);
     _activeTimers[id] = Timer.periodic(interval, (_) {
       _fireReminder(id, title);
     });
@@ -110,8 +118,9 @@ class NotificationService {
 
   /// Внутренний метод: показывает уведомление и вызывает callback.
   void _fireReminder(int id, String title) {
-    showNow(id, '🔔 $title', 'Время для дисциплины!');
-    onReminderFired?.call(id, title);
+    final fireTime = DateTime.now();
+    showNow(id, '🔔 $title', 'Время для дисциплины!', fireTime);
+    onReminderFired?.call(id, title, fireTime);
   }
 
   void stopReminder(int id) {
