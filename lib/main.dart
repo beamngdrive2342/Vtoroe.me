@@ -3,12 +3,16 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'notification_service.dart';
 import 'profile_screen.dart';
 import 'stats_service.dart';
+import 'login_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await Firebase.initializeApp();
   await NotificationService().init();
   await StatsService().checkDailyReset();
   runApp(const SecondSelfApp());
@@ -68,7 +72,21 @@ class SecondSelfApp extends StatelessWidget {
           elevation: 0,
         ),
       ),
-      home: const MainScreen(),
+      home: StreamBuilder<User?>(
+        stream: FirebaseAuth.instance.authStateChanges(),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Scaffold(
+              backgroundColor: Color(0xFF0E0E0E),
+              body: Center(
+                child: CircularProgressIndicator(color: Color(0xFFD4FF4A)),
+              ),
+            );
+          }
+          if (snapshot.hasData) return const MainScreen();
+          return const LoginScreen();
+        },
+      ),
     );
   }
 }
