@@ -10,7 +10,7 @@ import 'notification_service.dart';
 import 'profile_screen.dart';
 import 'stats_service.dart';
 import 'login_screen.dart';
-import 'onboarding_screen.dart';
+import 'onboarding_screen.dart' show OnboardingScreen, ProfileOnboardingScreen;
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -148,8 +148,8 @@ class _MainScreenState extends State<MainScreen> {
   bool isModeActive = false;
   DateTime? activationTime;
   Timer? _timer;
-  Timer? _statsTimer;
   int _currentTab = 0;
+  bool _profileOnboardingShown = false;
 
   /// Accumulated seconds per reminder index
   final Map<int, int> habitStats = {};
@@ -161,44 +161,26 @@ class _MainScreenState extends State<MainScreen> {
   int     _overlaySecondsLeft = 30;
   Timer?  _overlayTimer;
 
-  final List<Map<String, dynamic>> reminders = [
-    {
-      'title': 'Выровняй спину',
-      'subtitle': '30 М',
-      'icon': Icons.accessibility_new,
-      'isActive': true,
-    },
-    {
-      'title': 'Попей воду',
-      'subtitle': '60 М',
-      'icon': Icons.water_drop,
-      'isActive': true,
-    },
-    {
-      'title': 'Не закуривай',
-      'subtitle': '120 М',
-      'icon': Icons.smoke_free,
-      'isActive': true,
-    },
-    {
-      'title': 'Разомнись',
-      'subtitle': '60 М',
-      'icon': Icons.self_improvement,
-      'isActive': false,
-    },
-  ];
+  final List<Map<String, dynamic>> reminders = [];
 
   @override
   void initState() {
     super.initState();
-    // Регистрируем callback: при каждом срабатывании уведомления
+    // Регистрируем callback: при тапе на уведомление когда приложение открыто
     NotificationService().onReminderFired = _onReminderFired;
+    // Проверяем был ли уже показан профиль-онбординг
+    _checkProfileOnboarding();
+  }
+
+  Future<void> _checkProfileOnboarding() async {
+    final prefs = await SharedPreferences.getInstance();
+    _profileOnboardingShown =
+        prefs.getBool('profile_onboarding_done') ?? false;
   }
 
   @override
   void dispose() {
     _timer?.cancel();
-    _statsTimer?.cancel();
     _overlayTimer?.cancel();
     NotificationService().onReminderFired = null;
     NotificationService().stopAll();
@@ -266,7 +248,6 @@ class _MainScreenState extends State<MainScreen> {
 
   void _startNotifications() {
     final ns = NotificationService();
-    ns.requestPermission();
     for (int i = 0; i < reminders.length; i++) {
       if (reminders[i]['isActive'] == true) {
         final dur = ns.parseFrequency(reminders[i]['subtitle']);
@@ -279,22 +260,6 @@ class _MainScreenState extends State<MainScreen> {
 
   void _stopNotifications() {
     NotificationService().stopAll();
-  }
-
-  void _startStatsAccumulator() {
-    _statsTimer?.cancel();
-    _statsTimer = Timer.periodic(const Duration(seconds: 1), (_) {
-      for (int i = 0; i < reminders.length; i++) {
-        if (reminders[i]['isActive'] == true) {
-          habitStats[i] = (habitStats[i] ?? 0) + 1;
-        }
-      }
-    });
-  }
-
-  void _stopStatsAccumulator() {
-    _statsTimer?.cancel();
-    _statsTimer = null;
   }
 
   String _formatDuration(Duration duration) {
@@ -497,9 +462,27 @@ class _MainScreenState extends State<MainScreen> {
     final isSelected = _currentTab == index;
     return Expanded(
       child: GestureDetector(
-        onTap: () {
+        onTap: () async {
           AppSettings.vibrateLight();
           setState(() => _currentTab = index);
+          // Показываем профиль-онбординг при первом заходе на вкладку Профиль
+          if (index == 1 && !_profileOnboardingShown) {
+            _profileOnboardingShown = true;
+            final prefs = await SharedPreferences.getInstance();
+            await prefs.setBool('profile_onboarding_done', true);
+            if (mounted) {
+              await Navigator.of(context).push(
+                PageRouteBuilder(
+                  opaque: false,
+                  pageBuilder: (_, __, ___) => const ProfileOnboardingScreen(),
+                  transitionsBuilder: (_, animation, __, child) {
+                    return FadeTransition(opacity: animation, child: child);
+                  },
+                  transitionDuration: const Duration(milliseconds: 300),
+                ),
+              );
+            }
+          }
         },
         child: Container(
           color: isSelected ? AppTheme.surface : AppTheme.background,
@@ -547,12 +530,10 @@ class _MainScreenState extends State<MainScreen> {
                     setState(() {});
                   });
                   _startNotifications();
-                  _startStatsAccumulator();
                 } else {
                   _timer?.cancel();
                   _timer = null;
                   _stopNotifications();
-                  _stopStatsAccumulator();
                 }
               });
             },
