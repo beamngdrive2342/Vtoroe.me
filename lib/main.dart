@@ -600,18 +600,13 @@ class _MainScreenState extends State<MainScreen> {
               GestureDetector(
                 onTap: () {
                   AppSettings.vibrateMedium();
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) =>
-                          const SettingsScreen(title: '', isNew: true),
-                    ),
-                  ).then((newReminder) {
-                    if (newReminder != null) {
-                      setState(() {
-                        reminders.add(newReminder);
-                      });
-                    }
+                  setState(() {
+                    reminders.insert(0, {
+                      'title': '',
+                      'subtitle': '30 М',
+                      'icon': Icons.notifications_active,
+                      'isActive': true,
+                    });
                   });
                 },
                 child: Container(
@@ -651,48 +646,85 @@ class _MainScreenState extends State<MainScreen> {
             final r = entry.value;
             return Padding(
               padding: const EdgeInsets.only(bottom: 8),
-              child: ReminderCard(
-                title: r['title'],
-                subtitle: r['subtitle'],
-                icon: r['icon'],
-                isActive: r['isActive'],
-                onTap: () {
-                  AppSettings.vibrateLight();
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => SettingsScreen(
-                        title: r['title'],
-                        subtitle: r['subtitle'],
-                        isNew: false,
-                      ),
-                    ),
-                  ).then((updated) {
-                    if (updated != null) {
-                      setState(() {
-                        reminders[index]['subtitle'] = updated['subtitle'];
-                      });
-                    }
-                  });
+              child: Dismissible(
+                key: ObjectKey(r),
+                direction: DismissDirection.endToStart,
+                background: Container(
+                  alignment: Alignment.centerRight,
+                  padding: const EdgeInsets.only(right: 20),
+                  decoration: BoxDecoration(
+                    color: Colors.red.withOpacity(0.8),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: const Icon(Icons.delete_outline, color: Colors.white),
+                ),
+                confirmDismiss: (direction) async {
+                  AppSettings.vibrateMedium();
+                  return await showDialog(
+                    context: context,
+                    builder: (BuildContext context) {
+                      return AlertDialog(
+                        backgroundColor: AppTheme.surface,
+                        title: Text('Удалить напоминание?', style: AppTheme.newsreader.copyWith(color: AppTheme.textPrimary)),
+                        actions: <Widget>[
+                          TextButton(
+                            onPressed: () => Navigator.of(context).pop(false),
+                            child: Text('ОТМЕНА', style: AppTheme.spaceGrotesk.copyWith(color: AppTheme.textMuted)),
+                          ),
+                          TextButton(
+                            onPressed: () => Navigator.of(context).pop(true),
+                            child: Text('УДАЛИТЬ', style: AppTheme.spaceGrotesk.copyWith(color: Colors.red)),
+                          ),
+                        ],
+                      );
+                    },
+                  );
                 },
-                onToggle: (val) {
-                  AppSettings.vibrateLight();
+                onDismissed: (direction) {
+                  final ns = NotificationService();
+                  ns.stopReminder(index);
                   setState(() {
-                    reminders[index]['isActive'] = val;
+                    reminders.removeAt(index);
                   });
-                  // Live toggle: start/stop notification if mode is on
-                  if (isModeActive) {
-                    final ns = NotificationService();
-                    if (val) {
-                      final dur = ns.parseFrequency(reminders[index]['subtitle']);
-                      if (dur != null) {
-                        ns.startPeriodicReminder(index, reminders[index]['title'], dur);
-                      }
-                    } else {
-                      ns.stopReminder(index);
-                    }
-                  }
                 },
+                child: ReminderCard(
+                  title: r['title'],
+                  subtitle: r['subtitle'],
+                  icon: r['icon'],
+                  isActive: r['isActive'],
+                  initiallyExpanded: r['title'].isEmpty,
+                  onTitleChanged: (newTitle) {
+                    setState(() {
+                      reminders[index]['title'] = newTitle;
+                    });
+                  },
+                  onMinutesChanged: (minutes) {
+                    setState(() {
+                      reminders[index]['subtitle'] = '$minutes М';
+                    });
+                    if (r['isActive'] && isModeActive) {
+                      final ns = NotificationService();
+                      ns.startPeriodicReminder(index, reminders[index]['title'], Duration(minutes: minutes));
+                    }
+                  },
+                  onToggle: (val) {
+                    AppSettings.vibrateLight();
+                    setState(() {
+                      reminders[index]['isActive'] = val;
+                    });
+                    if (isModeActive) {
+                      final ns = NotificationService();
+                      if (val) {
+                        final dur = ns.parseFrequency(reminders[index]['subtitle']);
+                        if (dur != null) {
+                          ns.startPeriodicReminder(index, reminders[index]['title'], dur);
+                        }
+                      } else {
+                        ns.stopReminder(index);
+                      }
+                    }
+                  },
+                ),
               ),
             );
           }),
@@ -702,12 +734,14 @@ class _MainScreenState extends State<MainScreen> {
   }
 }
 
-class ReminderCard extends StatelessWidget {
+class ReminderCard extends StatefulWidget {
   final String title;
   final String subtitle;
   final IconData icon;
   final bool isActive;
-  final VoidCallback onTap;
+  final bool initiallyExpanded;
+  final ValueChanged<String> onTitleChanged;
+  final ValueChanged<int> onMinutesChanged;
   final ValueChanged<bool> onToggle;
 
   const ReminderCard({
@@ -716,238 +750,195 @@ class ReminderCard extends StatelessWidget {
     required this.subtitle,
     required this.icon,
     required this.isActive,
-    required this.onTap,
+    this.initiallyExpanded = false,
+    required this.onTitleChanged,
+    required this.onMinutesChanged,
     required this.onToggle,
   });
 
   @override
-  Widget build(BuildContext context) {
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 300),
-      decoration: BoxDecoration(
-        color: isActive
-            ? AppTheme.surface
-            : AppTheme.surface.withOpacity(0.5),
-        borderRadius: BorderRadius.circular(4),
-        border: Border.all(
-          color: isActive
-              ? AppTheme.border
-              : AppTheme.border.withOpacity(0.3),
-        ),
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            child: GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              onTap: onTap,
-              child: Padding(
-                padding: const EdgeInsets.only(left: 20, top: 24, bottom: 24, right: 8),
-                child: Row(
-                  children: [
-                    Icon(
-                      icon,
-                      color: isActive ? AppTheme.textPrimary : AppTheme.textMuted,
-                      size: 28,
-                    ),
-                    const SizedBox(width: 20),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            title,
-                            style: AppTheme.newsreader.copyWith(
-                              fontSize: 22,
-                              color: isActive
-                                  ? AppTheme.textPrimary
-                                  : AppTheme.textMuted,
-                            ),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            subtitle,
-                            style: AppTheme.spaceGrotesk.copyWith(
-                              fontSize: 10,
-                              letterSpacing: 1.5,
-                              color: AppTheme.textMuted,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.only(right: 16),
-            child: AppToggle(value: isActive, onChanged: onToggle),
-          ),
-        ],
-      ),
-    );
-  }
+  State<ReminderCard> createState() => _ReminderCardState();
 }
 
-// ==========================================
-// SETTINGS SCREEN
-// ==========================================
-class SettingsScreen extends StatefulWidget {
-  final String title;
-  final String subtitle; // current subtitle to pre-fill
-  final bool isNew;
-  const SettingsScreen({
-    super.key,
-    required this.title,
-    this.subtitle = '',
-    this.isNew = false,
-  });
-
-  @override
-  State<SettingsScreen> createState() => _SettingsScreenState();
-}
-
-class _SettingsScreenState extends State<SettingsScreen> {
+class _ReminderCardState extends State<ReminderCard> {
+  late bool _expanded;
   late TextEditingController _titleController;
-  late int selectedMinutes;  // 10..480
+  late FocusNode _focusNode;
 
   @override
   void initState() {
     super.initState();
+    _expanded = widget.initiallyExpanded || widget.title.isEmpty;
     _titleController = TextEditingController(text: widget.title);
-
-    selectedMinutes = 30;
-
-    if (widget.subtitle.isNotEmpty) {
-      final parts = widget.subtitle.split('•');
-      final dur = NotificationService().parseFrequency(parts[0].trim());
-      if (dur != null) {
-        // Snap to nearest valid value
-        final target = dur.inMinutes;
-        selectedMinutes = FrequencyRoulette.values.reduce(
-          (a, b) => (a - target).abs() <= (b - target).abs() ? a : b,
-        );
+    _focusNode = FocusNode();
+    
+    _focusNode.addListener(() {
+      if (!_focusNode.hasFocus) {
+        widget.onTitleChanged(_titleController.text.trim());
       }
+    });
+  }
+
+  @override
+  void didUpdateWidget(covariant ReminderCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.title != widget.title && _titleController.text != widget.title) {
+      _titleController.text = widget.title;
     }
   }
 
   @override
   void dispose() {
     _titleController.dispose();
+    _focusNode.dispose();
     super.dispose();
+  }
+
+  void _toggleExpand() {
+    setState(() {
+      _expanded = !_expanded;
+      if (_expanded && widget.title.isEmpty) {
+        _focusNode.requestFocus();
+      } else if (!_expanded) {
+        _focusNode.unfocus();
+        widget.onTitleChanged(_titleController.text.trim());
+      }
+    });
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: AppTheme.textPrimary),
-          onPressed: () => Navigator.pop(context),
+    final ns = NotificationService();
+    final dur = ns.parseFrequency(widget.subtitle);
+    
+    int selectedMinutes = 30;
+    if (dur != null) {
+      final target = dur.inMinutes;
+      selectedMinutes = FrequencyRoulette.values.reduce(
+        (a, b) => (a - target).abs() <= (b - target).abs() ? a : b,
+      );
+    }
+
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 300),
+      curve: Curves.easeInOut,
+      decoration: BoxDecoration(
+        color: widget.isActive
+            ? AppTheme.surface
+            : AppTheme.surface.withOpacity(0.5),
+        borderRadius: BorderRadius.circular(4),
+        border: Border.all(
+          color: widget.isActive
+              ? AppTheme.border
+              : AppTheme.border.withOpacity(0.3),
         ),
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            // Title
-            widget.isNew
-                ? TextField(
-                    controller: _titleController,
-                    style: AppTheme.newsreader.copyWith(
-                      fontSize: 36,
-                      height: 1.1,
-                      fontWeight: FontWeight.w600,
-                      color: AppTheme.textPrimary,
-                    ),
-                    cursorColor: AppTheme.accent,
-                    decoration: InputDecoration(
-                      hintText: 'НАЗВАНИЕ',
-                      hintStyle: AppTheme.newsreader.copyWith(
-                        fontSize: 36,
-                        height: 1.1,
-                        fontWeight: FontWeight.w600,
-                        color: AppTheme.textMuted,
-                      ),
-                      border: InputBorder.none,
-                      isDense: true,
-                      contentPadding: EdgeInsets.zero,
-                    ),
-                  )
-                : Text(
-                    widget.title.toUpperCase(),
-                    style: AppTheme.newsreader.copyWith(
-                      fontSize: 36,
-                      height: 1.1,
-                      fontWeight: FontWeight.w600,
+      child: Column(
+        children: [
+          GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: () {
+              AppSettings.vibrateLight();
+              _toggleExpand();
+            },
+            child: Padding(
+              padding: const EdgeInsets.only(left: 20, top: 24, bottom: 24, right: 8),
+              child: Row(
+                children: [
+                  Icon(
+                    widget.icon,
+                    color: widget.isActive ? AppTheme.textPrimary : AppTheme.textMuted,
+                    size: 28,
+                  ),
+                  const SizedBox(width: 20),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        if (_expanded)
+                          TextField(
+                            controller: _titleController,
+                            focusNode: _focusNode,
+                            style: AppTheme.newsreader.copyWith(
+                              fontSize: 22,
+                              color: widget.isActive
+                                  ? AppTheme.textPrimary
+                                  : AppTheme.textMuted,
+                            ),
+                            cursorColor: AppTheme.accent,
+                            decoration: InputDecoration(
+                              hintText: 'Название',
+                              hintStyle: AppTheme.newsreader.copyWith(
+                                fontSize: 22,
+                                color: AppTheme.textMuted.withOpacity(0.5),
+                              ),
+                              isDense: true,
+                              contentPadding: EdgeInsets.zero,
+                              border: InputBorder.none,
+                            ),
+                            onSubmitted: (val) {
+                              widget.onTitleChanged(val.trim());
+                              setState(() {
+                                _expanded = false;
+                              });
+                            },
+                          )
+                        else
+                          Text(
+                            widget.title.isEmpty ? 'Без названия' : widget.title,
+                            style: AppTheme.newsreader.copyWith(
+                              fontSize: 22,
+                              color: widget.isActive
+                                  ? AppTheme.textPrimary
+                                  : AppTheme.textMuted,
+                            ),
+                          ),
+                        const SizedBox(height: 4),
+                        Text(
+                          widget.subtitle,
+                          style: AppTheme.spaceGrotesk.copyWith(
+                            fontSize: 10,
+                            letterSpacing: 1.5,
+                            color: AppTheme.textMuted,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-            const SizedBox(height: 40),
-
-            // Frequency Section — drum roulette
-            Text(
-              'ЧАСТОТА НАПОМИНАНИЙ',
-              style: AppTheme.spaceGrotesk.copyWith(
-                fontSize: 10,
-                letterSpacing: 2,
-                color: AppTheme.textMuted,
-              ),
-            ),
-            const SizedBox(height: 12),
-            FrequencyRoulette(
-              selectedMinutes: selectedMinutes,
-              onChanged: (m) => setState(() => selectedMinutes = m),
-            ),
-            const SizedBox(height: 120),
-          ],
-        ),
-      ),
-      bottomSheet: Container(
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
-        decoration: BoxDecoration(
-          color: AppTheme.background,
-          border: const Border(top: BorderSide(color: AppTheme.border)),
-        ),
-        child: GestureDetector(
-          onTap: () {
-            HapticFeedback.mediumImpact();
-            final subtitle = '$selectedMinutes М';
-            if (widget.isNew) {
-              if (_titleController.text.trim().isEmpty) return;
-              Navigator.pop(context, {
-                'title': _titleController.text.trim(),
-                'subtitle': subtitle,
-                'icon': Icons.notifications_active,
-                'isActive': true,
-              });
-            } else {
-              Navigator.pop(context, {
-                'title': widget.title,
-                'subtitle': subtitle,
-              });
-            }
-          },
-          child: Container(
-            height: 56,
-            decoration: BoxDecoration(
-              color: AppTheme.accent,
-              borderRadius: BorderRadius.circular(4),
-            ),
-            alignment: Alignment.center,
-            child: Text(
-              'СОХРАНИТЬ  ✓',
-              style: AppTheme.spaceGrotesk.copyWith(
-                color: AppTheme.darkText,
-                fontSize: 14,
-                fontWeight: FontWeight.bold,
-                letterSpacing: 2,
+                  Padding(
+                    padding: const EdgeInsets.only(right: 8),
+                    child: AppToggle(value: widget.isActive, onChanged: widget.onToggle),
+                  ),
+                ],
               ),
             ),
           ),
-        ),
+          if (_expanded) ...[
+            const Divider(height: 1, color: AppTheme.border),
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 16),
+              child: Column(
+                children: [
+                  Text(
+                    'ЧАСТОТА НАПОМИНАНИЙ',
+                    style: AppTheme.spaceGrotesk.copyWith(
+                      fontSize: 10,
+                      letterSpacing: 2,
+                      color: AppTheme.textMuted,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  FrequencyRoulette(
+                    selectedMinutes: selectedMinutes,
+                    onChanged: (m) {
+                      widget.onMinutesChanged(m);
+                    },
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ],
       ),
     );
   }
