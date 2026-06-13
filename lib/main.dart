@@ -5,10 +5,12 @@ import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'notification_service.dart';
 import 'profile_screen.dart';
+import 'stats_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await NotificationService().init();
+  await StatsService().checkDailyReset();
   runApp(const SecondSelfApp());
 }
 
@@ -91,6 +93,13 @@ class _MainScreenState extends State<MainScreen> {
   /// Accumulated seconds per reminder index
   final Map<int, int> habitStats = {};
 
+  // ── Оверлей подтверждения ──────────────────────────────────────────────────
+  int?    activeReminderId;
+  String? activeReminderTitle;
+  DateTime? activeReminderStartedAt;
+  int     _overlaySecondsLeft = 30;
+  Timer?  _overlayTimer;
+
   final List<Map<String, dynamic>> reminders = [
     {
       'title': 'Выровняй спину',
@@ -119,11 +128,73 @@ class _MainScreenState extends State<MainScreen> {
   ];
 
   @override
+  void initState() {
+    super.initState();
+    // Регистрируем callback: при каждом срабатывании уведомления
+    NotificationService().onReminderFired = _onReminderFired;
+  }
+
+  @override
   void dispose() {
     _timer?.cancel();
     _statsTimer?.cancel();
+    _overlayTimer?.cancel();
+    NotificationService().onReminderFired = null;
     NotificationService().stopAll();
     super.dispose();
+  }
+
+  // ── Логика оверлея ─────────────────────────────────────────────────────────
+
+  /// Вызывается из NotificationService при каждом фактическом срабатывании таймера.
+  void _onReminderFired(int reminderId, String reminderTitle) {
+    // Увеличиваем totalFired в статистике
+    StatsService().incrementFired(reminderTitle);
+
+    // Если оверлей уже показывается — закрываем предыдущий (пропущен) и открываем новый
+    _closeOverlay(confirmed: false);
+
+    setState(() {
+      activeReminderId       = reminderId;
+      activeReminderTitle    = reminderTitle;
+      activeReminderStartedAt = DateTime.now();
+      _overlaySecondsLeft    = 30;
+    });
+
+    _overlayTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+      setState(() {
+        _overlaySecondsLeft--;
+      });
+      if (_overlaySecondsLeft <= 0) {
+        timer.cancel();
+        _closeOverlay(confirmed: false);
+      }
+    });
+  }
+
+  void _closeOverlay({required bool confirmed}) {
+    _overlayTimer?.cancel();
+    _overlayTimer = null;
+    if (mounted) {
+      setState(() {
+        activeReminderId      = null;
+        activeReminderTitle   = null;
+        activeReminderStartedAt = null;
+        _overlaySecondsLeft   = 30;
+      });
+    }
+  }
+
+  void _confirmAction() {
+    AppSettings.vibrateMedium();
+    if (activeReminderTitle != null) {
+      StatsService().incrementCompleted(activeReminderTitle!);
+    }
+    _closeOverlay(confirmed: true);
   }
 
   void _startNotifications() {
@@ -175,38 +246,181 @@ class _MainScreenState extends State<MainScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: _currentTab == 0
-          ? AppBar(
-              title: Text(
-                'ВТОРОЕ-Я',
-                style: AppTheme.newsreader.copyWith(
-                  fontSize: 24,
-                  fontWeight: FontWeight.bold,
-                  letterSpacing: 2,
+    final showOverlay = activeReminderId != null;
+
+    return Stack(
+      children: [
+        Scaffold(
+          appBar: _currentTab == 0
+              ? AppBar(
+                  title: Text(
+                    'ВТОРОЕ-Я',
+                    style: AppTheme.newsreader.copyWith(
+                      fontSize: 24,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 2,
+                    ),
+                  ),
+                  centerTitle: true,
+                )
+              : null,
+          body: _currentTab == 0
+              ? _buildHomeBody()
+              : ProfileScreen(
+                  reminders: reminders,
+                  isModeActive: isModeActive,
+                  activationTime: activationTime,
+                  habitStats: habitStats,
+                ),
+          bottomNavigationBar: Container(
+            height: 60,
+            decoration: const BoxDecoration(
+              border: Border(top: BorderSide(color: AppTheme.border)),
+            ),
+            child: Row(
+              children: [
+                _buildNavItem(0, Icons.home, 'ГЛАВНАЯ'),
+                _buildNavItem(1, Icons.person_outline, 'ПРОФИЛЬ'),
+              ],
+            ),
+          ),
+        ),
+        if (showOverlay) _buildConfirmationOverlay(),
+      ],
+    );
+  }
+
+  Widget _buildConfirmationOverlay() {
+    return Material(
+      color: Colors.transparent,
+      child: Container(
+        color: AppTheme.background.withOpacity(0.93),
+        child: SafeArea(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // Название напоминания
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 32),
+                child: Text(
+                  activeReminderTitle ?? '',
+                  textAlign: TextAlign.center,
+                  style: AppTheme.newsreader.copyWith(
+                    fontSize: 30,
+                    fontWeight: FontWeight.bold,
+                    color: AppTheme.textPrimary,
+                    height: 1.2,
+                  ),
                 ),
               ),
-              centerTitle: true,
-            )
-          : null,
-      body: _currentTab == 0
-          ? _buildHomeBody()
-          : ProfileScreen(
-              reminders: reminders,
-              isModeActive: isModeActive,
-              activationTime: activationTime,
-              habitStats: habitStats,
-            ),
-      bottomNavigationBar: Container(
-        height: 60,
-        decoration: const BoxDecoration(
-          border: Border(top: BorderSide(color: AppTheme.border)),
-        ),
-        child: Row(
-          children: [
-            _buildNavItem(0, Icons.home, 'ГЛАВНАЯ'),
-            _buildNavItem(1, Icons.person_outline, 'ПРОФИЛЬ'),
-          ],
+              const SizedBox(height: 12),
+              Text(
+                'ВЫПОЛНИ СЕЙЧАС',
+                textAlign: TextAlign.center,
+                style: AppTheme.spaceGrotesk.copyWith(
+                  fontSize: 11,
+                  letterSpacing: 2.5,
+                  color: AppTheme.textMuted,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 56),
+
+              // Большой обратный отсчёт
+              Center(
+                child: Container(
+                  width: 140,
+                  height: 140,
+                  decoration: BoxDecoration(
+                    color: AppTheme.surface,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(
+                      color: _overlaySecondsLeft <= 10
+                          ? AppTheme.accent.withOpacity(0.6)
+                          : AppTheme.border,
+                      width: _overlaySecondsLeft <= 10 ? 2 : 1,
+                    ),
+                    boxShadow: _overlaySecondsLeft <= 10
+                        ? [
+                            BoxShadow(
+                              color: AppTheme.accent.withOpacity(0.12),
+                              blurRadius: 20,
+                              spreadRadius: 4,
+                            ),
+                          ]
+                        : null,
+                  ),
+                  alignment: Alignment.center,
+                  child: Text(
+                    '$_overlaySecondsLeft',
+                    style: AppTheme.spaceGrotesk.copyWith(
+                      fontSize: 64,
+                      fontWeight: FontWeight.w800,
+                      color: _overlaySecondsLeft <= 10
+                          ? AppTheme.accent
+                          : AppTheme.textPrimary,
+                      height: 1.0,
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'секунд',
+                textAlign: TextAlign.center,
+                style: AppTheme.spaceGrotesk.copyWith(
+                  fontSize: 11,
+                  letterSpacing: 1.5,
+                  color: AppTheme.textMuted,
+                ),
+              ),
+              const SizedBox(height: 64),
+
+              // Кнопка СДЕЛАЛ
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 32),
+                child: GestureDetector(
+                  onTap: _confirmAction,
+                  child: Container(
+                    height: 64,
+                    decoration: BoxDecoration(
+                      color: AppTheme.accent,
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    alignment: Alignment.center,
+                    child: Text(
+                      'СДЕЛАЛ  ✓',
+                      style: AppTheme.spaceGrotesk.copyWith(
+                        color: AppTheme.darkText,
+                        fontSize: 18,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: 3,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 20),
+
+              // Пропустить
+              GestureDetector(
+                onTap: () => _closeOverlay(confirmed: false),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  child: Text(
+                    'ПРОПУСТИТЬ',
+                    textAlign: TextAlign.center,
+                    style: AppTheme.spaceGrotesk.copyWith(
+                      fontSize: 11,
+                      letterSpacing: 2,
+                      color: AppTheme.textMuted,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -879,9 +1093,9 @@ class FrequencyRoulette extends StatefulWidget {
     required this.onChanged,
   });
 
-  // Фиксированный список значений
+  // Фиксированный список значений (минимум 10 минут)
   static const List<int> values = [
-    1, 2, 3, 5, 10, 15, 20, 30, 45, 60,
+    10, 15, 20, 30, 45, 60,
     90, 120, 150, 180, 210, 240, 270, 300,
   ];
 
