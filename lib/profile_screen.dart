@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'main.dart';
 import 'stats_service.dart';
 import 'auth_service.dart';
@@ -130,9 +131,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 // ── 5. Sign Out ─────────────────────────────────────────────
                 Center(
                   child: GestureDetector(
-                    onTap: () async {
+                    onTap: () {
                       AppSettings.vibrateLight();
-                      await AuthService().signOut();
+                      _showLogoutDialog(context);
                     },
                     child: Padding(
                       padding: const EdgeInsets.symmetric(vertical: 8),
@@ -153,6 +154,62 @@ class _ProfileScreenState extends State<ProfileScreen> {
             ),
           ),
         ),
+      ),
+    );
+  }
+
+  // ── Диалог выхода ─────────────────────────────────────────────────────────
+
+  Future<void> _showLogoutDialog(BuildContext context) async {
+    return showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: AppTheme.surface,
+        title: Text(
+          'Выйти из аккаунта?',
+          style: GoogleFonts.newsreader(
+            color: AppTheme.textPrimary,
+            fontSize: 22,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        content: Text(
+          'Вы всегда сможете войти снова.',
+          style: GoogleFonts.spaceGrotesk(
+            color: AppTheme.textMuted,
+            fontSize: 14,
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: Text(
+              'ОТМЕНА',
+              style: GoogleFonts.spaceGrotesk(
+                color: AppTheme.textMuted,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+          TextButton(
+            onPressed: () async {
+              Navigator.of(context).pop();
+              AppSettings.vibrateLight();
+              // Очищаем флаги обучения при выходе
+              final prefs = await SharedPreferences.getInstance();
+              await prefs.remove('onboarding_done');
+              await prefs.remove('profile_onboarding_done');
+              await AuthService().signOut();
+            },
+            child: Text(
+              'ВЫЙТИ',
+              style: GoogleFonts.spaceGrotesk(
+                color: AppTheme.accent,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
