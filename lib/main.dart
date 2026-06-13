@@ -5,10 +5,12 @@ import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'notification_service.dart';
 import 'profile_screen.dart';
 import 'stats_service.dart';
 import 'login_screen.dart';
+import 'onboarding_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -83,11 +85,52 @@ class SecondSelfApp extends StatelessWidget {
               ),
             );
           }
-          if (snapshot.hasData) return const MainScreen();
+          if (snapshot.hasData) return const OnboardingWrapper();
           return const LoginScreen();
         },
       ),
     );
+  }
+}
+
+// ==========================================
+// ONBOARDING WRAPPER
+// ==========================================
+class OnboardingWrapper extends StatefulWidget {
+  const OnboardingWrapper({super.key});
+
+  @override
+  State<OnboardingWrapper> createState() => _OnboardingWrapperState();
+}
+
+class _OnboardingWrapperState extends State<OnboardingWrapper> {
+  bool? _onboardingDone;
+
+  @override
+  void initState() {
+    super.initState();
+    _checkOnboarding();
+  }
+
+  Future<void> _checkOnboarding() async {
+    final prefs = await SharedPreferences.getInstance();
+    setState(() {
+      _onboardingDone = prefs.getBool('onboarding_done') ?? false;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_onboardingDone == null) {
+      return const Scaffold(
+        backgroundColor: Color(0xFF0E0E0E),
+        body: Center(
+          child: CircularProgressIndicator(color: Color(0xFFD4FF4A)),
+        ),
+      );
+    }
+    if (_onboardingDone!) return const MainScreen();
+    return const OnboardingScreen();
   }
 }
 
