@@ -11,6 +11,10 @@ class NotificationService {
 
   final Map<int, Timer> _activeTimers = {};
 
+  /// Callback, вызываемый каждый раз при фактическом срабатывании напоминания.
+  /// Аргументы: reminderId (int), reminderTitle (String).
+  void Function(int reminderId, String reminderTitle)? onReminderFired;
+
   Future<void> init() async {
     const androidSettings = AndroidInitializationSettings(
       '@mipmap/ic_launcher',
@@ -98,10 +102,16 @@ class NotificationService {
   void startPeriodicReminder(int id, String title, Duration interval) {
     stopReminder(id);
     // Fire first notification immediately, then repeat
-    showNow(id, '🔔 $title', 'Время для дисциплины!');
+    _fireReminder(id, title);
     _activeTimers[id] = Timer.periodic(interval, (_) {
-      showNow(id, '🔔 $title', 'Время для дисциплины!');
+      _fireReminder(id, title);
     });
+  }
+
+  /// Внутренний метод: показывает уведомление и вызывает callback.
+  void _fireReminder(int id, String title) {
+    showNow(id, '🔔 $title', 'Время для дисциплины!');
+    onReminderFired?.call(id, title);
   }
 
   void stopReminder(int id) {
