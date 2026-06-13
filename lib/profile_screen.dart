@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'main.dart';
 import 'stats_service.dart';
+import 'auth_service.dart';
 
 class ProfileScreen extends StatefulWidget {
   final List<Map<String, dynamic>> reminders;
@@ -23,8 +24,6 @@ class ProfileScreen extends StatefulWidget {
 }
 
 class _ProfileScreenState extends State<ProfileScreen> {
-  String userName = 'Пользователь';
-
   double _overallPercent = 0;
   int _streak = 0;
   final List<_ReminderStat> _reminderStats = [];
@@ -75,58 +74,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
   }
 
-  void _editName(BuildContext context) {
-    final controller = TextEditingController(text: userName);
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: AppTheme.surface,
-        title: Text('Имя', style: AppTheme.newsreader.copyWith(fontSize: 18)),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          style: AppTheme.spaceGrotesk.copyWith(color: AppTheme.textPrimary),
-          cursorColor: AppTheme.accent,
-          decoration: InputDecoration(
-            enabledBorder: UnderlineInputBorder(
-              borderSide: BorderSide(color: AppTheme.border),
-            ),
-            focusedBorder: const UnderlineInputBorder(
-              borderSide: BorderSide(color: AppTheme.accent),
-            ),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: Text(
-              'ОТМЕНА',
-              style: AppTheme.spaceGrotesk.copyWith(
-                color: AppTheme.textMuted,
-                fontSize: 12,
-              ),
-            ),
-          ),
-          TextButton(
-            onPressed: () {
-              if (controller.text.trim().isNotEmpty) {
-                setState(() => userName = controller.text.trim());
-              }
-              Navigator.pop(ctx);
-            },
-            child: Text(
-              'OK',
-              style: AppTheme.spaceGrotesk.copyWith(
-                color: AppTheme.accent,
-                fontSize: 12,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
+  // _editName removed — name comes from Google account
 
   @override
   Widget build(BuildContext context) {
@@ -178,6 +126,29 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 _buildRemindersList(),
 
                 const SizedBox(height: 32),
+
+                // ── 5. Sign Out ─────────────────────────────────────────────
+                Center(
+                  child: GestureDetector(
+                    onTap: () async {
+                      AppSettings.vibrateLight();
+                      await AuthService().signOut();
+                    },
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      child: Text(
+                        'ВЫЙТИ',
+                        style: GoogleFonts.spaceGrotesk(
+                          fontSize: 11,
+                          letterSpacing: 2,
+                          color: AppTheme.textMuted,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+
+                const SizedBox(height: 24),
               ],
             ),
           ),
@@ -189,6 +160,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
   // ── Header ────────────────────────────────────────────────────────────────
 
   Widget _buildHeader(BuildContext context) {
+    final name = AuthService().displayName;
+    final photoUrl = AuthService().photoUrl;
     return Row(
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
@@ -201,7 +174,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
             borderRadius: BorderRadius.circular(6),
             border: Border.all(color: AppTheme.accent, width: 1.5),
           ),
-          child: const Icon(Icons.person, color: AppTheme.accent, size: 22),
+          clipBehavior: Clip.antiAlias,
+          child: photoUrl != null
+              ? Image.network(photoUrl, fit: BoxFit.cover)
+              : const Icon(Icons.person, color: AppTheme.accent, size: 22),
         ),
         const SizedBox(width: 12),
 
@@ -212,7 +188,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
             mainAxisSize: MainAxisSize.min,
             children: [
               Text(
-                userName,
+                name,
                 style: GoogleFonts.newsreader(
                   fontSize: 15,
                   color: AppTheme.textPrimary,
@@ -234,20 +210,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 ),
               ),
             ],
-          ),
-        ),
-
-        // Edit
-        GestureDetector(
-          onTap: () => _editName(context),
-          behavior: HitTestBehavior.opaque,
-          child: Padding(
-            padding: const EdgeInsets.all(8),
-            child: Icon(
-              Icons.edit_outlined,
-              color: AppTheme.textMuted,
-              size: 16,
-            ),
           ),
         ),
       ],
