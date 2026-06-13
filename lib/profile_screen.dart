@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'main.dart';
 import 'stats_service.dart';
 
@@ -7,8 +8,6 @@ class ProfileScreen extends StatefulWidget {
   final List<Map<String, dynamic>> reminders;
   final bool isModeActive;
   final DateTime? activationTime;
-
-  /// Map of reminder index -> accumulated seconds (legacy, kept for compat)
   final Map<int, int> habitStats;
 
   const ProfileScreen({
@@ -24,6 +23,8 @@ class ProfileScreen extends StatefulWidget {
 }
 
 class _ProfileScreenState extends State<ProfileScreen> {
+  String userName = 'Пользователь';
+
   double _overallPercent = 0;
   int _streak = 0;
   final List<_ReminderStat> _reminderStats = [];
@@ -33,7 +34,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
   void initState() {
     super.initState();
     _loadStats();
-    // Обновляем каждые 5 секунд, пока экран открыт
     _refreshTimer = Timer.periodic(const Duration(seconds: 5), (_) {
       if (mounted) _loadStats();
     });
@@ -48,18 +48,18 @@ class _ProfileScreenState extends State<ProfileScreen> {
   Future<void> _loadStats() async {
     final stats = StatsService();
     final overall = await stats.getOverallPercent();
-    final streak  = await stats.getCurrentStreak();
+    final streak = await stats.getCurrentStreak();
 
     final List<_ReminderStat> entries = [];
     for (final r in widget.reminders) {
       final title = r['title'] as String;
-      final pct   = await stats.getReminderPercent(title);
+      final pct = await stats.getReminderPercent(title);
       final (fired, completed) = await stats.getReminderRaw(title);
       entries.add(_ReminderStat(
-        title:     title,
-        icon:      r['icon'] as IconData,
-        percent:   pct,
-        fired:     fired,
+        title: title,
+        icon: r['icon'] as IconData,
+        percent: pct,
+        fired: fired,
         completed: completed,
       ));
     }
@@ -67,7 +67,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     if (mounted) {
       setState(() {
         _overallPercent = overall;
-        _streak         = streak;
+        _streak = streak;
         _reminderStats
           ..clear()
           ..addAll(entries);
@@ -75,9 +75,63 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
   }
 
+  void _editName(BuildContext context) {
+    final controller = TextEditingController(text: userName);
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppTheme.surface,
+        title: Text('Имя', style: AppTheme.newsreader.copyWith(fontSize: 18)),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          style: AppTheme.spaceGrotesk.copyWith(color: AppTheme.textPrimary),
+          cursorColor: AppTheme.accent,
+          decoration: InputDecoration(
+            enabledBorder: UnderlineInputBorder(
+              borderSide: BorderSide(color: AppTheme.border),
+            ),
+            focusedBorder: const UnderlineInputBorder(
+              borderSide: BorderSide(color: AppTheme.accent),
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: Text(
+              'ОТМЕНА',
+              style: AppTheme.spaceGrotesk.copyWith(
+                color: AppTheme.textMuted,
+                fontSize: 12,
+              ),
+            ),
+          ),
+          TextButton(
+            onPressed: () {
+              if (controller.text.trim().isNotEmpty) {
+                setState(() => userName = controller.text.trim());
+              }
+              Navigator.pop(ctx);
+            },
+            child: Text(
+              'OK',
+              style: AppTheme.spaceGrotesk.copyWith(
+                color: AppTheme.accent,
+                fontSize: 12,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: AppTheme.background,
       appBar: AppBar(
         title: Text(
           'ВТОРОЕ-Я',
@@ -89,349 +143,299 @@ class _ProfileScreenState extends State<ProfileScreen> {
         ),
         centerTitle: true,
       ),
-      body: RefreshIndicator(
-        color: AppTheme.accent,
-        backgroundColor: AppTheme.surface,
-        onRefresh: _loadStats,
-        child: SingleChildScrollView(
-          physics: const AlwaysScrollableScrollPhysics(),
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              // ── Вкладка «Сегодня» ──────────────────────────────────────────
-              Text(
-                'СЕГОДНЯ',
-                style: AppTheme.spaceGrotesk.copyWith(
-                  fontSize: 10,
-                  letterSpacing: 3,
-                  color: AppTheme.textMuted,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              const SizedBox(height: 24),
+      body: SafeArea(
+        child: RefreshIndicator(
+          color: AppTheme.accent,
+          backgroundColor: AppTheme.surface,
+          onRefresh: _loadStats,
+          child: SingleChildScrollView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // ── 1. Header ────────────────────────────────────────────────
+                _buildHeader(context),
 
-              // ── Блок 1: Большой процент ─────────────────────────────────────
-              _buildOverallBlock(),
-              const SizedBox(height: 24),
+                // ── 2. Divider ───────────────────────────────────────────────
+                const Divider(color: AppTheme.border, height: 24),
 
-              // ── Блок 2: Streak ──────────────────────────────────────────────
-              _buildStreakBlock(),
-              const SizedBox(height: 32),
+                // ── 3. Карточки статистики ───────────────────────────────────
+                _buildStatCards(),
 
-              // ── Настройки ───────────────────────────────────────────────────
-              Text(
-                'НАСТРОЙКИ',
-                style: AppTheme.spaceGrotesk.copyWith(
-                  fontSize: 10,
-                  letterSpacing: 2,
-                  color: AppTheme.textMuted,
-                ),
-              ),
-              const SizedBox(height: 12),
-              _buildSettingToggle(
-                'Звуковые уведомления',
-                Icons.volume_up,
-                AppSettings.soundEnabled,
-                (v) => setState(() => AppSettings.soundEnabled = v),
-              ),
-              const SizedBox(height: 8),
-              _buildSettingToggle(
-                'Вибрация',
-                Icons.vibration,
-                AppSettings.vibroEnabled,
-                (v) => setState(() => AppSettings.vibroEnabled = v),
-              ),
-              const SizedBox(height: 32),
-
-              // ── Блок 3: Список напоминаний ──────────────────────────────────
-              Text(
-                'НАПОМИНАНИЯ',
-                style: AppTheme.spaceGrotesk.copyWith(
-                  fontSize: 10,
-                  letterSpacing: 2,
-                  color: AppTheme.textMuted,
-                ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                'Выполнение за сегодня',
-                style: AppTheme.spaceGrotesk.copyWith(
-                  fontSize: 10,
-                  color: AppTheme.textMuted.withOpacity(0.6),
-                ),
-              ),
-              const SizedBox(height: 16),
-
-              if (_reminderStats.isEmpty)
-                Center(
-                  child: Padding(
-                    padding: const EdgeInsets.all(24),
-                    child: Text(
-                      'Пока нет данных.\nВключите режим активности!',
-                      textAlign: TextAlign.center,
-                      style: AppTheme.spaceGrotesk.copyWith(
-                        fontSize: 12,
-                        color: AppTheme.textMuted,
-                      ),
-                    ),
+                // ── 4. Напоминания ───────────────────────────────────────────
+                const SizedBox(height: 24),
+                Text(
+                  'НАПОМИНАНИЯ',
+                  style: GoogleFonts.spaceGrotesk(
+                    fontSize: 9,
+                    letterSpacing: 2,
+                    color: AppTheme.textMuted,
+                    fontWeight: FontWeight.w600,
                   ),
-                )
-              else
-                ..._reminderStats.map((stat) => Padding(
-                      padding: const EdgeInsets.only(bottom: 12),
-                      child: _buildReminderRow(stat),
-                    )),
+                ),
+                const SizedBox(height: 10),
+                _buildRemindersList(),
 
-              const SizedBox(height: 40),
-            ],
+                const SizedBox(height: 32),
+              ],
+            ),
           ),
         ),
       ),
     );
   }
 
-  // ── Блок 1: Общий процент ─────────────────────────────────────────────────
+  // ── Header ────────────────────────────────────────────────────────────────
 
-  Widget _buildOverallBlock() {
-    final pct = _overallPercent;
-    final pctInt = pct.round();
-
-    // Цвет процента: красноватый при низком, акцент при высоком
-    final Color pctColor = pct >= 80
-        ? AppTheme.accent
-        : pct >= 50
-            ? AppTheme.textPrimary
-            : const Color(0xFFFF6B6B);
-
-    return Container(
-      padding: const EdgeInsets.symmetric(vertical: 32, horizontal: 20),
-      decoration: BoxDecoration(
-        color: AppTheme.surface,
-        borderRadius: BorderRadius.circular(4),
-        border: Border.all(
-          color: pct >= 80 ? AppTheme.accent.withOpacity(0.4) : AppTheme.border,
-          width: pct >= 80 ? 1.5 : 1,
+  Widget _buildHeader(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        // Avatar
+        Container(
+          width: 44,
+          height: 44,
+          decoration: BoxDecoration(
+            color: AppTheme.surface,
+            borderRadius: BorderRadius.circular(6),
+            border: Border.all(color: AppTheme.accent, width: 1.5),
+          ),
+          child: const Icon(Icons.person, color: AppTheme.accent, size: 22),
         ),
-        boxShadow: pct >= 80
-            ? [
-                BoxShadow(
-                  color: AppTheme.accent.withOpacity(0.08),
-                  blurRadius: 20,
-                  spreadRadius: 2,
-                ),
-              ]
-            : null,
-      ),
-      child: Column(
-        children: [
-          Text(
-            '$pctInt%',
-            textAlign: TextAlign.center,
-            style: AppTheme.newsreader.copyWith(
-              fontSize: 80,
-              fontWeight: FontWeight.bold,
-              color: pctColor,
-              height: 1.0,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'ВЫПОЛНЕНО СЕГОДНЯ',
-            textAlign: TextAlign.center,
-            style: AppTheme.spaceGrotesk.copyWith(
-              fontSize: 10,
-              letterSpacing: 2.5,
-              color: AppTheme.textMuted,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-          const SizedBox(height: 16),
-          // Прогресс-бар
-          Container(
-            height: 6,
-            decoration: BoxDecoration(
-              color: AppTheme.border,
-              borderRadius: BorderRadius.circular(3),
-            ),
-            child: FractionallySizedBox(
-              alignment: Alignment.centerLeft,
-              widthFactor: (pct / 100).clamp(0.0, 1.0),
-              child: Container(
-                decoration: BoxDecoration(
-                  color: pctColor,
-                  borderRadius: BorderRadius.circular(3),
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
+        const SizedBox(width: 12),
 
-  // ── Блок 2: Streak ─────────────────────────────────────────────────────────
-
-  Widget _buildStreakBlock() {
-    return Container(
-      padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 20),
-      decoration: BoxDecoration(
-        color: AppTheme.surface,
-        borderRadius: BorderRadius.circular(4),
-        border: Border.all(color: AppTheme.border),
-      ),
-      child: Row(
-        children: [
-          Text(
-            '🔥',
-            style: const TextStyle(fontSize: 32),
-          ),
-          const SizedBox(width: 16),
-          Column(
+        // Имя + статус
+        Expanded(
+          child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
             children: [
               Text(
-                '$_streak ${_pluralDays(_streak)}',
-                style: AppTheme.newsreader.copyWith(
-                  fontSize: 26,
-                  fontWeight: FontWeight.bold,
-                  color: _streak > 0 ? AppTheme.accent : AppTheme.textPrimary,
+                userName,
+                style: GoogleFonts.newsreader(
+                  fontSize: 15,
+                  color: AppTheme.textPrimary,
+                  fontWeight: FontWeight.w600,
                 ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
               ),
-              const SizedBox(height: 2),
+              const SizedBox(height: 3),
               Text(
-                'STREAK · ПОДРЯД ≥ 80%',
-                style: AppTheme.spaceGrotesk.copyWith(
+                widget.isModeActive ? '● РЕЖИМ АКТИВЕН' : '○ РЕЖИМ ВЫКЛЮЧЕН',
+                style: GoogleFonts.spaceGrotesk(
                   fontSize: 10,
-                  letterSpacing: 1.5,
-                  color: AppTheme.textMuted,
+                  letterSpacing: 1,
+                  color: widget.isModeActive
+                      ? AppTheme.accent
+                      : AppTheme.textMuted,
                   fontWeight: FontWeight.w600,
                 ),
               ),
             ],
           ),
-        ],
-      ),
+        ),
+
+        // Edit
+        GestureDetector(
+          onTap: () => _editName(context),
+          behavior: HitTestBehavior.opaque,
+          child: Padding(
+            padding: const EdgeInsets.all(8),
+            child: Icon(
+              Icons.edit_outlined,
+              color: AppTheme.textMuted,
+              size: 16,
+            ),
+          ),
+        ),
+      ],
     );
   }
 
-  String _pluralDays(int n) {
-    if (n % 10 == 1 && n % 100 != 11) return 'день';
-    if (n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 10 || n % 100 >= 20)) return 'дня';
-    return 'дней';
+  // ── Карточки статистики ───────────────────────────────────────────────────
+
+  Widget _buildStatCards() {
+    final pctInt = _overallPercent.round();
+    final streakStr = _streak.toString();
+    final daysSuffix = _pluralDays(_streak);
+
+    return Row(
+      children: [
+        // Левая: процент
+        Expanded(
+          child: Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: AppTheme.surface,
+              borderRadius: BorderRadius.circular(6),
+              border: Border.all(color: AppTheme.border),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '$pctInt%',
+                  style: GoogleFonts.spaceGrotesk(
+                    fontSize: 24,
+                    fontWeight: FontWeight.bold,
+                    color: AppTheme.accent,
+                    height: 1.1,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'СЕГОДНЯ',
+                  style: GoogleFonts.spaceGrotesk(
+                    fontSize: 9,
+                    letterSpacing: 2,
+                    color: AppTheme.textMuted,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(width: 8),
+
+        // Правая: streak
+        Expanded(
+          child: Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: AppTheme.surface,
+              borderRadius: BorderRadius.circular(6),
+              border: Border.all(color: AppTheme.border),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                RichText(
+                  text: TextSpan(
+                    children: [
+                      TextSpan(
+                        text: streakStr,
+                        style: GoogleFonts.spaceGrotesk(
+                          fontSize: 24,
+                          fontWeight: FontWeight.bold,
+                          color: AppTheme.textPrimary,
+                          height: 1.1,
+                        ),
+                      ),
+                      TextSpan(
+                        text: ' $daysSuffix',
+                        style: GoogleFonts.spaceGrotesk(
+                          fontSize: 11,
+                          color: AppTheme.textMuted,
+                          height: 1.1,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'STREAK',
+                  style: GoogleFonts.spaceGrotesk(
+                    fontSize: 9,
+                    letterSpacing: 2,
+                    color: AppTheme.textMuted,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
   }
 
-  // ── Строка напоминания ─────────────────────────────────────────────────────
+  // ── Список напоминаний ────────────────────────────────────────────────────
+
+  Widget _buildRemindersList() {
+    if (_reminderStats.isEmpty) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 12),
+        child: Text(
+          'Пока нет данных. Включите режим активности!',
+          style: GoogleFonts.spaceGrotesk(
+            fontSize: 11,
+            color: AppTheme.textMuted,
+          ),
+        ),
+      );
+    }
+
+    return Column(
+      children: _reminderStats.asMap().entries.map((entry) {
+        final i = entry.key;
+        final stat = entry.value;
+        return Padding(
+          padding: EdgeInsets.only(bottom: i < _reminderStats.length - 1 ? 8 : 0),
+          child: _buildReminderRow(stat),
+        );
+      }).toList(),
+    );
+  }
 
   Widget _buildReminderRow(_ReminderStat stat) {
     final pctInt = stat.percent.round();
-    final Color pctColor = stat.percent >= 80
-        ? AppTheme.accent
-        : stat.percent >= 50
-            ? AppTheme.textPrimary
-            : AppTheme.textMuted;
+    final iconColor = stat.percent >= 50 ? AppTheme.textPrimary : AppTheme.textMuted;
+    final pctColor = stat.percent >= 50 ? AppTheme.accent : AppTheme.textMuted;
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
       decoration: BoxDecoration(
         color: AppTheme.surface,
-        borderRadius: BorderRadius.circular(4),
-        border: Border.all(color: AppTheme.border),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(stat.icon, color: AppTheme.textPrimary, size: 18),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Text(
-                  stat.title,
-                  style: AppTheme.newsreader.copyWith(
-                    fontSize: 16,
-                    color: AppTheme.textPrimary,
-                  ),
-                ),
-              ),
-              Text(
-                '$pctInt%',
-                style: AppTheme.spaceGrotesk.copyWith(
-                  fontSize: 15,
-                  fontWeight: FontWeight.w700,
-                  color: pctColor,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          // Прогресс-бар
-          Container(
-            height: 5,
-            decoration: BoxDecoration(
-              color: AppTheme.border,
-              borderRadius: BorderRadius.circular(3),
-            ),
-            child: FractionallySizedBox(
-              alignment: Alignment.centerLeft,
-              widthFactor: (stat.percent / 100).clamp(0.02, 1.0),
-              child: Container(
-                decoration: BoxDecoration(
-                  color: pctColor,
-                  borderRadius: BorderRadius.circular(3),
-                ),
-              ),
-            ),
-          ),
-          if (stat.fired > 0) ...[
-            const SizedBox(height: 6),
-            Text(
-              '${stat.completed} из ${stat.fired} подтверждено',
-              style: AppTheme.spaceGrotesk.copyWith(
-                fontSize: 10,
-                color: AppTheme.textMuted.withOpacity(0.7),
-                letterSpacing: 0.5,
-              ),
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-
-  // ── Настройки (сохранены из старого ProfileScreen) ─────────────────────────
-
-  Widget _buildSettingToggle(
-    String label,
-    IconData icon,
-    bool value,
-    ValueChanged<bool> onChanged,
-  ) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-      decoration: BoxDecoration(
-        color: AppTheme.surface,
+        borderRadius: BorderRadius.circular(6),
         border: Border.all(color: AppTheme.border),
       ),
       child: Row(
         children: [
-          Icon(icon, color: AppTheme.textPrimary, size: 20),
-          const SizedBox(width: 12),
+          Icon(stat.icon, color: iconColor, size: 14),
+          const SizedBox(width: 10),
           Expanded(
             child: Text(
-              label,
-              style: AppTheme.spaceGrotesk
-                  .copyWith(fontSize: 13, color: AppTheme.textPrimary),
+              stat.title,
+              style: GoogleFonts.newsreader(
+                fontSize: 12,
+                color: AppTheme.textPrimary,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
             ),
           ),
-          AppToggle(value: value, onChanged: onChanged),
+          const SizedBox(width: 8),
+          Text(
+            '$pctInt%',
+            style: GoogleFonts.spaceGrotesk(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: pctColor,
+            ),
+          ),
         ],
       ),
     );
   }
+
+
+
+  // ── Утилиты ───────────────────────────────────────────────────────────────
+
+  String _pluralDays(int n) {
+    if (n % 10 == 1 && n % 100 != 11) return 'день';
+    if (n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 10 || n % 100 >= 20)) {
+      return 'дня';
+    }
+    return 'дней';
+  }
 }
 
-// ── Модель данных одной строки статистики ──────────────────────────────────
+// ── Модель данных ─────────────────────────────────────────────────────────
 
 class _ReminderStat {
   final String title;
