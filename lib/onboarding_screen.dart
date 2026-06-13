@@ -62,15 +62,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     await NotificationService().requestPermission();
     await NotificationService().requestExactAlarmPermission();
     if (mounted) {
-      Navigator.of(context).pushReplacement(
-        PageRouteBuilder(
-          pageBuilder: (_, __, ___) => const MainScreen(),
-          transitionsBuilder: (_, animation, __, child) {
-            return FadeTransition(opacity: animation, child: child);
-          },
-          transitionDuration: const Duration(milliseconds: 400),
-        ),
-      );
+      Navigator.of(context).pop();
     }
   }
 
@@ -78,9 +70,14 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   Widget build(BuildContext context) {
     final isLast = _currentPage == _pages.length - 1;
 
-    return Scaffold(
-      backgroundColor: AppTheme.background,
-      body: SafeArea(
+    return Container(
+      height: MediaQuery.of(context).size.height * 0.55,
+      decoration: const BoxDecoration(
+        color: AppTheme.background,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      child: SafeArea(
+        top: false,
         child: Column(
           children: [
             Expanded(
@@ -268,9 +265,14 @@ class _ProfileOnboardingScreenState extends State<ProfileOnboardingScreen> {
   Widget build(BuildContext context) {
     final isLast = _currentPage == _pages.length - 1;
 
-    return Scaffold(
-      backgroundColor: AppTheme.background,
-      body: SafeArea(
+    return Container(
+      height: MediaQuery.of(context).size.height * 0.55,
+      decoration: const BoxDecoration(
+        color: AppTheme.background,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      child: SafeArea(
+        top: false,
         child: Column(
           children: [
             Expanded(
