@@ -1,5 +1,6 @@
-import 'dart:async';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:timezone/timezone.dart' as tz;
+import 'package:timezone/data/latest.dart' as tz;
 
 class NotificationService {
   static final NotificationService _instance = NotificationService._internal();
@@ -9,13 +10,16 @@ class NotificationService {
   final FlutterLocalNotificationsPlugin _plugin =
       FlutterLocalNotificationsPlugin();
 
-  final Map<int, Timer> _activeTimers = {};
-
-  /// Callback, вызываемый каждый раз при фактическом срабатывании напоминания.
-  /// Аргументы: reminderId (int), reminderTitle (String), fireTime (DateTime).
+  /// Callback для UI-оверлея (вызывается при тапе на уведомление когда приложение открыто)
   void Function(int reminderId, String reminderTitle, DateTime fireTime)? onReminderFired;
 
+  /// Активные конфиги напоминаний (для отмены)
+  final Map<int, _ReminderConfig> _activeConfigs = {};
+
   Future<void> init() async {
+    // Инициализируем timezone
+    tz.initializeTimeZones();
+
     const androidSettings = AndroidInitializationSettings(
       '@mipmap/ic_launcher',
     );
@@ -23,10 +27,23 @@ class NotificationService {
 
     await _plugin.initialize(
       settings: initSettings,
-      onDidReceiveNotificationResponse: (details) {},
+      onDidReceiveNotificationResponse: (details) {
+        // Когда пользователь тапнул по уведомлению — вызываем callback
+        final payload = details.payload;
+        if (payload != null) {
+          final parts = payload.split('|');
+          if (parts.length == 2) {
+            final id = int.tryParse(parts[0]);
+            final title = parts[1];
+            if (id != null) {
+              onReminderFired?.call(id, title, DateTime.now());
+            }
+          }
+        }
+      },
     );
 
-    // Create Android notification channel explicitly
+    // Создаём Android notification channel
     const channel = AndroidNotificationChannel(
       'vtoroe_ya_channel',
       'Второе Я',
@@ -38,16 +55,14 @@ class NotificationService {
 
     final androidPlugin = _plugin
         .resolvePlatformSpecificImplementation<
-          AndroidFlutterLocalNotificationsPlugin
-        >();
+            AndroidFlutterLocalNotificationsPlugin>();
     await androidPlugin?.createNotificationChannel(channel);
   }
 
   Future<bool> requestPermission() async {
     final android = _plugin
         .resolvePlatformSpecificImplementation<
-          AndroidFlutterLocalNotificationsPlugin
-        >();
+            AndroidFlutterLocalNotificationsPlugin>();
     if (android != null) {
       final granted = await android.requestNotificationsPermission();
       return granted ?? false;
@@ -55,46 +70,27 @@ class NotificationService {
     return true;
   }
 
-  Future<void> showNow(int id, String title, String body, DateTime fireTime) async {
-    final whenTime = fireTime.millisecondsSinceEpoch + 30000;
-    final details = NotificationDetails(
-      android: AndroidNotificationDetails(
-        'vtoroe_ya_channel',
-        'Второе Я',
-        channelDescription: 'Напоминания для дисциплины',
-        importance: Importance.max,
-        priority: Priority.high,
-        enableVibration: true,
-        playSound: true,
-        showWhen: true,
-        when: whenTime,
-        usesChronometer: true,
-        chronometerCountDown: true,
-        timeoutAfter: 30000,
-        styleInformation: const BigTextStyleInformation(''),
-      ),
-    );
-    await _plugin.show(
-      id: id,
-      title: title,
-      body: body,
-      notificationDetails: details,
-    );
+  Future<bool> requestExactAlarmPermission() async {
+    final android = _plugin
+        .resolvePlatformSpecificImplementation<
+            AndroidFlutterLocalNotificationsPlugin>();
+    if (android != null) {
+      final granted = await android.requestExactAlarmsPermission();
+      return granted ?? false;
+    }
+    return true;
   }
 
   Future<void> dismissNotification(int id) async {
     await _plugin.cancel(id: id);
   }
 
-  /// Parse frequency from subtitle like "30 М • ВИБРО" or "30 М" or "1 Ч"
+  /// Parse frequency from subtitle like "30 М" or "1 Ч"
   Duration? parseFrequency(String subtitle) {
-    // Take only the part before bullet if present
     final raw = subtitle.contains('•') ? subtitle.split('•').first : subtitle;
     final upper = raw.trim().toUpperCase();
 
-    // Match digits followed by optional space then Ч (hour)
     final regHour = RegExp(r'(\d+(?:\.\d+)?)\s*Ч');
-    // Match digits followed by optional space then М (minute)
     final regMin = RegExp(r'(\d+)\s*М');
 
     final hourMatch = regHour.firstMatch(upper);
@@ -109,30 +105,88 @@ class NotificationService {
     return null;
   }
 
-  void startPeriodicReminder(int id, String title, Duration interval) {
+  /// Запустить периодическое напоминание через системный планировщик Android.
+  /// Планирует 48 уведомлений вперёд (≈24ч для 30-мин интервала).
+  /// Работает даже когда приложение закрыто.
+  Future<void> startPeriodicReminder(
+      int id, String title, Duration interval) async {
     stopReminder(id);
-    _activeTimers[id] = Timer.periodic(interval, (_) {
-      _fireReminder(id, title);
-    });
+    _activeConfigs[id] = _ReminderConfig(id: id, title: title, interval: interval);
+    await _scheduleNext48(id, title, interval);
   }
 
-  /// Внутренний метод: показывает уведомление и вызывает callback.
-  void _fireReminder(int id, String title) {
-    final fireTime = DateTime.now();
-    showNow(id, '🔔 $title', 'Время для дисциплины!', fireTime);
-    onReminderFired?.call(id, title, fireTime);
+  /// Планирует 48 уведомлений вперёд с шагом [interval].
+  Future<void> _scheduleNext48(int id, String title, Duration interval) async {
+    final now = tz.TZDateTime.now(tz.local);
+
+    for (int i = 0; i < 48; i++) {
+      final scheduledTime = now.add(interval * (i + 1));
+      final notifId = id * 1000 + i;
+
+      final details = NotificationDetails(
+        android: AndroidNotificationDetails(
+          'vtoroe_ya_channel',
+          'Второе Я',
+          channelDescription: 'Напоминания для дисциплины',
+          importance: Importance.max,
+          priority: Priority.high,
+          enableVibration: true,
+          playSound: true,
+          showWhen: true,
+          when: scheduledTime.millisecondsSinceEpoch + 30000,
+          usesChronometer: true,
+          chronometerCountDown: true,
+          timeoutAfter: 30000,
+          styleInformation: const BigTextStyleInformation(''),
+        ),
+      );
+
+      try {
+        await _plugin.zonedSchedule(
+          id: notifId,
+          scheduledDate: scheduledTime,
+          notificationDetails: details,
+          androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+          title: '🔔 $title',
+          body: 'Время для дисциплины!',
+          payload: '$id|$title',
+        );
+      } catch (_) {
+        // Если exact alarm недоступен — пробуем inexact
+        try {
+          await _plugin.zonedSchedule(
+            id: notifId,
+            scheduledDate: scheduledTime,
+            notificationDetails: details,
+            androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
+            title: '🔔 $title',
+            body: 'Время для дисциплины!',
+            payload: '$id|$title',
+          );
+        } catch (_) {
+          // Пропустить это уведомление
+        }
+      }
+    }
   }
 
   void stopReminder(int id) {
-    _activeTimers[id]?.cancel();
-    _activeTimers.remove(id);
+    _activeConfigs.remove(id);
+    for (int i = 0; i < 48; i++) {
+      _plugin.cancel(id: id * 1000 + i);
+    }
   }
 
   void stopAll() {
-    for (final timer in _activeTimers.values) {
-      timer.cancel();
-    }
-    _activeTimers.clear();
+    _activeConfigs.clear();
     _plugin.cancelAll();
   }
+}
+
+class _ReminderConfig {
+  final int id;
+  final String title;
+  final Duration interval;
+  const _ReminderConfig(
+      {required this.id, required this.title, required this.interval});
 }
