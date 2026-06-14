@@ -1,3 +1,5 @@
+import 'dart:io';
+import 'package:flutter/services.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:timezone/timezone.dart' as tz;
 import 'package:timezone/data/latest.dart' as tz;
@@ -81,11 +83,25 @@ class NotificationService {
     return true;
   }
 
+  /// Запрашивает исключение из оптимизации батареи Android.
+  /// Это критично для надёжной доставки уведомлений на Xiaomi, Samsung,
+  /// Huawei и других телефонах с агрессивной оптимизацией.
+  Future<void> requestBatteryOptimizationExemption() async {
+    if (!Platform.isAndroid) return;
+    try {
+      const channel = MethodChannel('vtoroe_me/battery');
+      await channel.invokeMethod('requestIgnoreBatteryOptimizations');
+    } catch (_) {
+      // Игнорируем — не все устройства поддерживают
+    }
+  }
+
   Future<void> dismissNotification(int id) async {
     await _plugin.cancel(id: id);
   }
 
-  /// Parse frequency from subtitle like "30 М" or "1 Ч"
+  /// Parse frequency from subtitle like "30 М", "2 Ч" or "1 Ч 30 М".
+  /// Correctly combines hours and minutes if both are present.
   Duration? parseFrequency(String subtitle) {
     final raw = subtitle.contains('•') ? subtitle.split('•').first : subtitle;
     final upper = raw.trim().toUpperCase();
@@ -94,13 +110,22 @@ class NotificationService {
     final regMin = RegExp(r'(\d+)\s*М');
 
     final hourMatch = regHour.firstMatch(upper);
+    final minMatch  = regMin.firstMatch(upper);
+
+    int totalMinutes = 0;
     if (hourMatch != null) {
       final val = double.tryParse(hourMatch.group(1)!) ?? 0;
-      return Duration(minutes: (val * 60).round());
+      totalMinutes += (val * 60).round();
     }
-    final minMatch = regMin.firstMatch(upper);
     if (minMatch != null) {
-      return Duration(minutes: int.parse(minMatch.group(1)!));
+      totalMinutes += int.parse(minMatch.group(1)!);
+    }
+    if (totalMinutes > 0) return Duration(minutes: totalMinutes);
+    // Запасной вариант: если просто число минут без буквы (старый формат)
+    final plainNum = RegExp(r'^(\d+)$').firstMatch(upper.trim());
+    if (plainNum != null) {
+      final m = int.tryParse(plainNum.group(1)!);
+      if (m != null && m > 0) return Duration(minutes: m);
     }
     return null;
   }
