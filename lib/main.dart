@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -127,8 +128,58 @@ class _MainScreenState extends State<MainScreen> {
     super.initState();
     // Регистрируем callback: при тапе на уведомление когда приложение открыто
     NotificationService().onReminderFired = _onReminderFired;
+    // Загружаем сохранённые напоминания и состояние режима
+    _loadReminders();
     // Проверяем статус обучений
     _checkOnboardings();
+  }
+
+  /// Загружает напоминания из SharedPreferences
+  Future<void> _loadReminders() async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString('reminders_v1');
+    final wasModeActive = prefs.getBool('mode_active') ?? false;
+
+    if (raw != null) {
+      final List<dynamic> decoded = jsonDecode(raw);
+      final loaded = decoded.map<Map<String, dynamic>>((item) {
+        return {
+          'title': item['title'] as String? ?? '',
+          'subtitle': item['subtitle'] as String? ?? '30 М',
+          'icon': Icons.notifications_active,
+          'isActive': item['isActive'] as bool? ?? true,
+        };
+      }).toList();
+
+      if (mounted) {
+        setState(() {
+          reminders.clear();
+          reminders.addAll(loaded);
+          // Восстанавливаем режим активности если был активен
+          if (wasModeActive && reminders.isNotEmpty) {
+            isModeActive = true;
+            activationTime = DateTime.now();
+            _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
+              setState(() {});
+            });
+            // Перепланируем уведомления (предыдущие могли истечь)
+            _startNotifications();
+          }
+        });
+      }
+    }
+  }
+
+  /// Сохраняет напоминания в SharedPreferences
+  Future<void> _saveReminders() async {
+    final prefs = await SharedPreferences.getInstance();
+    final data = reminders.map((r) => {
+      'title': r['title'],
+      'subtitle': r['subtitle'],
+      'isActive': r['isActive'],
+    }).toList();
+    await prefs.setString('reminders_v1', jsonEncode(data));
+    await prefs.setBool('mode_active', isModeActive);
   }
 
   Future<void> _checkOnboardings() async {
@@ -159,7 +210,9 @@ class _MainScreenState extends State<MainScreen> {
     _timer?.cancel();
     _overlayTimer?.cancel();
     NotificationService().onReminderFired = null;
-    NotificationService().stopAll();
+    // НЕ вызываем stopAll() здесь — системные уведомления должны
+    // приходить даже когда приложение закрыто.
+    // stopAll() вызывается только при явном нажатии кнопки "Стоп".
     super.dispose();
   }
 
@@ -250,6 +303,16 @@ class _MainScreenState extends State<MainScreen> {
     } else {
       return '$secondsс';
     }
+  }
+
+  /// Форматирует минуты в человекочитаемый subtitle напоминания.
+  /// Примеры: 5 → "5 М", 60 → "1 Ч", 90 → "1 Ч 30 М", 120 → "2 Ч"
+  static String _formatSubtitle(int minutes) {
+    if (minutes < 60) return '$minutes М';
+    final h = minutes ~/ 60;
+    final rem = minutes % 60;
+    if (rem == 0) return '$h Ч';
+    return '$h Ч $rem М';
   }
 
   @override
@@ -508,6 +571,7 @@ class _MainScreenState extends State<MainScreen> {
                   _stopNotifications();
                 }
               });
+              _saveReminders();
             },
             child: ClipRRect(
               borderRadius: BorderRadius.circular(4),
@@ -622,6 +686,7 @@ class _MainScreenState extends State<MainScreen> {
                       'isActive': true,
                     });
                   });
+                  _saveReminders();
                 },
                 child: Container(
                   padding: const EdgeInsets.symmetric(
@@ -700,6 +765,7 @@ class _MainScreenState extends State<MainScreen> {
                   setState(() {
                     reminders.removeAt(index);
                   });
+                  _saveReminders();
                 },
                 child: ReminderCard(
                   title: r['title'],
@@ -711,15 +777,17 @@ class _MainScreenState extends State<MainScreen> {
                     setState(() {
                       reminders[index]['title'] = newTitle;
                     });
+                    _saveReminders();
                   },
                   onMinutesChanged: (minutes) {
                     setState(() {
-                      reminders[index]['subtitle'] = '$minutes М';
+                      reminders[index]['subtitle'] = _formatSubtitle(minutes);
                     });
                     if (r['isActive'] && isModeActive) {
                       final ns = NotificationService();
                       ns.startPeriodicReminder(index, reminders[index]['title'], Duration(minutes: minutes));
                     }
+                    _saveReminders();
                   },
                   onToggle: (val) {
                     AppSettings.vibrateLight();
@@ -737,6 +805,7 @@ class _MainScreenState extends State<MainScreen> {
                         ns.stopReminder(index);
                       }
                     }
+                    _saveReminders();
                   },
                 ),
               ),
@@ -1020,7 +1089,7 @@ class FrequencyRoulette extends StatefulWidget {
 
   // Фиксированный список значений (минимум 10 минут)
   static const List<int> values = [
-    10, 15, 20, 30, 45, 60,
+    5, 10, 15, 20, 30, 45, 60,
     90, 120, 150, 180, 210, 240, 270, 300,
   ];
 
