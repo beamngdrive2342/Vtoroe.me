@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:timezone/timezone.dart' as tz;
@@ -19,8 +20,10 @@ class NotificationService {
   final Map<int, _ReminderConfig> _activeConfigs = {};
 
   Future<void> init() async {
-    // Инициализируем timezone
+    // Инициализируем timezone и определяем часовой пояс устройства
     tz.initializeTimeZones();
+    _detectAndSetTimezone();
+    debugPrint('[NotificationService] Timezone set to: ${tz.local.name}');
 
     const androidSettings = AndroidInitializationSettings(
       '@mipmap/ic_launcher',
@@ -59,6 +62,20 @@ class NotificationService {
         .resolvePlatformSpecificImplementation<
             AndroidFlutterLocalNotificationsPlugin>();
     await androidPlugin?.createNotificationChannel(channel);
+  }
+
+  /// Определяет часовой пояс устройства по смещению UTC и устанавливает tz.local.
+  void _detectAndSetTimezone() {
+    final deviceOffset = DateTime.now().timeZoneOffset;
+    // Ищем в базе данных timezone локацию с таким же смещением
+    for (final entry in tz.timeZoneDatabase.locations.entries) {
+      final locNow = tz.TZDateTime.now(entry.value);
+      if (locNow.timeZoneOffset == deviceOffset) {
+        tz.setLocalLocation(entry.value);
+        return;
+      }
+    }
+    // Если не нашли — оставляем UTC
   }
 
   Future<bool> requestPermission() async {
@@ -143,10 +160,15 @@ class NotificationService {
   /// Планирует 48 уведомлений вперёд с шагом [interval].
   Future<void> _scheduleNext48(int id, String title, Duration interval) async {
     final now = tz.TZDateTime.now(tz.local);
+    debugPrint('[NotificationService] Scheduling 48 notifications for "$title", interval=${interval.inMinutes}min, now=$now (tz=${tz.local.name})');
 
     for (int i = 0; i < 48; i++) {
       final scheduledTime = now.add(interval * (i + 1));
       final notifId = id * 1000 + i;
+
+      if (i == 0) {
+        debugPrint('[NotificationService] First notification at: $scheduledTime');
+      }
 
       final details = NotificationDetails(
         android: AndroidNotificationDetails(
@@ -176,7 +198,8 @@ class NotificationService {
           body: 'Время для дисциплины!',
           payload: '$id|$title',
         );
-      } catch (_) {
+      } catch (e1) {
+        debugPrint('[NotificationService] Exact alarm failed for id=$notifId: $e1');
         // Если exact alarm недоступен — пробуем inexact
         try {
           await _plugin.zonedSchedule(
@@ -188,8 +211,8 @@ class NotificationService {
             body: 'Время для дисциплины!',
             payload: '$id|$title',
           );
-        } catch (_) {
-          // Пропустить это уведомление
+        } catch (e2) {
+          debugPrint('[NotificationService] Inexact alarm also failed for id=$notifId: $e2');
         }
       }
     }
