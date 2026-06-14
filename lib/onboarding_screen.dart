@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'main.dart' show AppTheme, AppSettings, MainScreen;
+import 'main.dart' show AppTheme, AppSettings;
 import 'notification_service.dart';
 
 class OnboardingScreen extends StatefulWidget {
@@ -61,6 +61,8 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     // Запрашиваем разрешения на уведомления и точные будильники
     await NotificationService().requestPermission();
     await NotificationService().requestExactAlarmPermission();
+    // Запрашиваем исключение из оптимизации батареи (критично для фона)
+    await NotificationService().requestBatteryOptimizationExemption();
     if (mounted) {
       Navigator.of(context).pop();
     }
